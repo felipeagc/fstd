@@ -1,0 +1,62 @@
+#ifndef FSTD_LOG_H
+#define FSTD_LOG_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdio.h>
+#include <string.h>
+
+inline void fstd_log_info(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  printf("[INFO] ");
+  vprintf(format, args);
+  printf("\n");
+  va_end(args);
+}
+
+inline void fstd_log_fatal(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  printf("[FATAL] ");
+  vprintf(format, args);
+  printf("\n");
+  va_end(args);
+}
+
+inline void fstd_log_error(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  printf("[ERROR] ");
+  vprintf(format, args);
+  printf("\n");
+  va_end(args);
+}
+
+inline void fstd_log_warn(const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  printf("[WARN] ");
+  vprintf(format, args);
+  printf("\n");
+  va_end(args);
+}
+
+inline void fstd_log_debug(const char *format, ...) {
+#ifndef NDEBUG
+  va_list args;
+  va_start(args, format);
+  printf("[DEBUG] ");
+  vprintf(format, args);
+  printf("\n");
+  va_end(args);
+#endif
+}
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
