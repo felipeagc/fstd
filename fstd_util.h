@@ -1,5 +1,5 @@
-#ifndef FSTD_FILE_H
-#define FSTD_FILE_H
+#ifndef FSTD_UTIL_H
+#define FSTD_UTIL_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -8,7 +8,9 @@ extern "C" {
 #include <stdio.h>
 #include <stdlib.h>
 
-char *fstd_load_string_from_file(const char *path) {
+#define ARRAYSIZE(array) (sizeof(array) / sizeof((array)[0]))
+
+static inline char *fstd_load_string_from_file(const char *path) {
   FILE *file = fopen(path, "r");
   if (file == NULL)
     return NULL;
@@ -28,7 +30,7 @@ char *fstd_load_string_from_file(const char *path) {
   return buffer;
 }
 
-unsigned char *fstd_load_bytes_from_file(const char *path, size_t *size) {
+static inline unsigned char *fstd_load_bytes_from_file(const char *path, size_t *size) {
   FILE *file = fopen(path, "rb");
   if (file == NULL)
     return NULL;
