@@ -8,7 +8,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-#define FSTD_BITSET(size)                                                        \
+#define FSTD_BITSET(size)                                                      \
   struct {                                                                     \
     uint8_t bytes[(size + 7) / 8];                                             \
   }
