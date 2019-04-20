@@ -5,3 +5,6 @@ test('alloc_tests', alloc_tests)
 
 map_tests = executable('map_tests', ['map_tests.c'], dependencies: [fstd_dep, unity_dep])
 test('map_tests', map_tests)
+
+bitset_tests = executable('bitset_tests', ['bitset_tests.c'], dependencies: [fstd_dep, unity_dep])
+test('bitset_tests', bitset_tests)
