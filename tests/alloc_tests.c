@@ -174,6 +174,54 @@ void test_alloc_free() {
   fstd_allocator_destroy(&allocator);
 }
 
+void test_alloc_realloc_grow() {
+  fstd_allocator_t allocator;
+
+  fstd_allocator_init(&allocator, 160);
+
+  {
+    uint32_t *alloc1 = fstd_alloc(&allocator, sizeof(uint32_t));
+    TEST_ASSERT(alloc1 != NULL);
+    TEST_ASSERT_EQUAL_UINT32(block_count(&allocator), 1);
+
+    uint32_t *alloc2 = fstd_realloc(&allocator, alloc1, sizeof(uint32_t) * 4);
+    TEST_ASSERT(alloc2 != NULL);
+    TEST_ASSERT(alloc2 == alloc1);
+    TEST_ASSERT_EQUAL_UINT32(block_count(&allocator), 1);
+
+    uint32_t *alloc3 = fstd_realloc(
+        &allocator, alloc2, allocator.block_size - sizeof(fstd_alloc_header_t));
+    TEST_ASSERT(alloc3 != NULL);
+    TEST_ASSERT(alloc3 == alloc2);
+    TEST_ASSERT_EQUAL_UINT32(block_count(&allocator), 1);
+  }
+
+  fstd_allocator_destroy(&allocator);
+}
+
+void test_alloc_realloc_fragmented() {
+  fstd_allocator_t allocator;
+
+  fstd_allocator_init(&allocator, 160);
+
+  {
+    uint32_t *alloc1 = fstd_alloc(&allocator, sizeof(uint32_t));
+    TEST_ASSERT(alloc1 != NULL);
+    *alloc1 = 3;
+
+    void *alloc2 = fstd_alloc(&allocator, 4);
+    TEST_ASSERT(alloc2 != NULL);
+
+    uint32_t *alloc3 =
+        fstd_realloc(&allocator, alloc1, FSTD__ALLOC_ALIGNMENT + 1);
+    TEST_ASSERT(alloc3 != NULL);
+    TEST_ASSERT(alloc3 != alloc1);
+    TEST_ASSERT(*alloc3 == 3);
+  }
+
+  fstd_allocator_destroy(&allocator);
+}
+
 int main() {
   UNITY_BEGIN();
 
@@ -183,6 +231,8 @@ int main() {
   RUN_TEST(test_alloc_multi_block);
   RUN_TEST(test_alloc_too_big);
   RUN_TEST(test_alloc_free);
+  RUN_TEST(test_alloc_realloc_grow);
+  RUN_TEST(test_alloc_realloc_fragmented);
 
   return UNITY_END();
 }

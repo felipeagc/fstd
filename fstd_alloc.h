@@ -48,6 +48,8 @@ void fstd_allocator_destroy(fstd_allocator_t *allocator);
 
 void *fstd_alloc(fstd_allocator_t *allocator, size_t size);
 
+void *fstd_realloc(fstd_allocator_t *allocator, void *ptr, size_t size);
+
 void fstd_free(fstd_allocator_t *allocator, void *ptr);
 
 #ifdef FSTD_ALLOC_IMPLEMENTATION
@@ -55,6 +57,7 @@ void fstd_free(fstd_allocator_t *allocator, void *ptr);
 #include <assert.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define FSTD__HEADER_ADDR(header)                                              \
   (((uint8_t *)header) + sizeof(fstd_alloc_header_t))
@@ -195,6 +198,51 @@ void *fstd_alloc(fstd_allocator_t *allocator, size_t size) {
   best_header->used = true;
 
   return FSTD__HEADER_ADDR(best_header);
+}
+
+void *fstd_realloc(fstd_allocator_t *allocator, void *ptr, size_t size) {
+  if (ptr == NULL) {
+    return fstd_alloc(allocator, size);
+  }
+
+  fstd_alloc_header_t *header =
+      (fstd_alloc_header_t *)(((uint8_t *)ptr) - sizeof(fstd_alloc_header_t));
+
+  if (header->size >= size) {
+    // Already big enough
+    header->used = true;
+    return ptr;
+  }
+
+  fstd_alloc_header_t *next_header = header->next;
+  size_t next_sizes = header->size;
+  while (next_header != NULL && !next_header->used) {
+    if (next_sizes >= size) {
+      break;
+    }
+    next_sizes += sizeof(fstd_alloc_header_t) + next_header->size;
+    next_header = header->next;
+  }
+
+  if (next_sizes >= size) {
+    // Grow header
+    if (next_header->next != NULL) {
+      next_header->next->prev = header;
+    }
+    header->next = next_header->next;
+    header->size = next_sizes;
+    header->used = true;
+
+    return ptr;
+  }
+
+  void *new_ptr = fstd_alloc(allocator, size);
+  memcpy(new_ptr, ptr, header->size);
+
+  header->used = false;
+  header_merge_if_necessary(header);
+
+  return new_ptr;
 }
 
 void fstd_free(fstd_allocator_t *allocator, void *ptr) {
