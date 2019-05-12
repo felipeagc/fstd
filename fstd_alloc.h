@@ -12,12 +12,21 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct fstd_alloc_header_t {
-  /* 0x00 */ uint32_t size;
-  /* 0x04 */ uint32_t used;
-  /* 0x0C */ void *addr;
-  /* 0x10 */ struct fstd_alloc_header_t *prev;
-  /* 0x18 */ struct fstd_alloc_header_t *next;
+#if defined(_MSC_VER)
+#define FSTD__ALLOC_ALIGNAS(x) __declspec(align(x))
+#elif defined(__clang__)
+#define FSTD__ALLOC_ALIGNAS(x) __attribute__((aligned(x)))
+#elif defined(__GNUC__)
+#define FSTD__ALLOC_ALIGNAS(x) __attribute__((aligned(x)))
+#endif
+
+#define FSTD__ALLOC_ALIGNMENT 16
+
+typedef FSTD__ALLOC_ALIGNAS(FSTD__ALLOC_ALIGNMENT) struct fstd_alloc_header_t {
+  size_t size;
+  size_t used;
+  struct fstd_alloc_header_t *prev;
+  struct fstd_alloc_header_t *next;
 } fstd_alloc_header_t;
 
 typedef struct fstd_alloc_block_t {
@@ -37,7 +46,7 @@ void fstd_allocator_init(fstd_allocator_t *allocator, size_t block_size);
 
 void fstd_allocator_destroy(fstd_allocator_t *allocator);
 
-void *fstd_alloc(fstd_allocator_t *allocator, uint32_t size);
+void *fstd_alloc(fstd_allocator_t *allocator, size_t size);
 
 void fstd_free(fstd_allocator_t *allocator, void *ptr);
 
@@ -47,20 +56,19 @@ void fstd_free(fstd_allocator_t *allocator, void *ptr);
 #include <stdbool.h>
 #include <stdlib.h>
 
-static inline void alloc_header_init(
-    fstd_alloc_header_t *header,
-    size_t size,
-    fstd_alloc_header_t *prev,
+#define FSTD__HEADER_ADDR(header)                                              \
+  (((uint8_t *)header) + sizeof(fstd_alloc_header_t))
+
+static inline void header_init(
+    fstd_alloc_header_t *header, size_t size, fstd_alloc_header_t *prev,
     fstd_alloc_header_t *next) {
-  header->addr = ((uint8_t *)header) + sizeof(fstd_alloc_header_t);
   header->prev = prev;
   header->next = next;
-  header->size = (uint32_t)size;
+  header->size = size;
   header->used = false;
 }
 
-static inline void
-alloc_header_merge_if_necessary(fstd_alloc_header_t *header) {
+static inline void header_merge_if_necessary(fstd_alloc_header_t *header) {
   assert(header != NULL);
   assert(!header->used);
 
@@ -76,26 +84,23 @@ alloc_header_merge_if_necessary(fstd_alloc_header_t *header) {
   }
 }
 
-static inline void
-general_block_init(fstd_alloc_block_t *block, size_t block_size) {
+static inline void block_init(fstd_alloc_block_t *block, size_t block_size) {
   assert(block_size > sizeof(fstd_alloc_header_t));
   block->storage = (uint8_t *)malloc(block_size);
   block->first_header = (fstd_alloc_header_t *)block->storage;
-  alloc_header_init(
-      block->first_header,
-      block_size - sizeof(fstd_alloc_header_t),
-      NULL,
+  header_init(
+      block->first_header, block_size - sizeof(fstd_alloc_header_t), NULL,
       NULL);
   block->next = NULL;
   block->prev = NULL;
 }
 
-static inline void general_block_destroy(fstd_alloc_block_t *block) {
+static inline void block_destroy(fstd_alloc_block_t *block) {
   if (block == NULL) {
     return;
   }
 
-  general_block_destroy(block->next);
+  block_destroy(block->next);
   if (block->next != NULL) {
     free(block->next);
   }
@@ -104,20 +109,19 @@ static inline void general_block_destroy(fstd_alloc_block_t *block) {
 }
 
 void fstd_allocator_init(fstd_allocator_t *allocator, size_t block_size) {
-
   allocator->block_size = block_size;
 
-  general_block_init(&allocator->base_block, block_size);
+  block_init(&allocator->base_block, block_size);
 
   allocator->last_block = &allocator->base_block;
 }
 
 void fstd_allocator_destroy(fstd_allocator_t *allocator) {
-  general_block_destroy(&allocator->base_block);
+  block_destroy(&allocator->base_block);
 }
 
-void *fstd_alloc(fstd_allocator_t *allocator, uint32_t size) {
-  if (size >= allocator->block_size + sizeof(fstd_alloc_header_t)) {
+void *fstd_alloc(fstd_allocator_t *allocator, size_t size) {
+  if (size > allocator->block_size - sizeof(fstd_alloc_header_t)) {
     return NULL;
   }
 
@@ -125,19 +129,22 @@ void *fstd_alloc(fstd_allocator_t *allocator, uint32_t size) {
   fstd_alloc_block_t *block = allocator->last_block;
   bool can_insert_new_header = false;
 
-  uint32_t padding = 0;
-  if (size % 8 != 0) {
-    padding = 8 - (size % 8);
-  }
-
   while (block != NULL) {
     fstd_alloc_header_t *header = block->first_header;
     while (header != NULL) {
       if (!header->used && header->size >= size) {
         best_header = header;
 
+        size_t padding = 0;
+        size_t size_to_pad =
+            ((uintptr_t)header) + sizeof(fstd_alloc_header_t) + size;
+        if (size_to_pad % FSTD__ALLOC_ALIGNMENT != 0) {
+          padding =
+              FSTD__ALLOC_ALIGNMENT - (size_to_pad % FSTD__ALLOC_ALIGNMENT);
+        }
+
         can_insert_new_header =
-            header->size >= size + padding + sizeof(fstd_alloc_header_t);
+            (header->size >= sizeof(fstd_alloc_header_t) + size + padding);
         break;
       }
 
@@ -154,7 +161,7 @@ void *fstd_alloc(fstd_allocator_t *allocator, uint32_t size) {
   if (best_header == NULL) {
     fstd_alloc_block_t *new_block =
         (fstd_alloc_block_t *)malloc(sizeof(fstd_alloc_block_t));
-    general_block_init(new_block, allocator->block_size);
+    block_init(new_block, allocator->block_size);
 
     new_block->prev = allocator->last_block;
 
@@ -165,32 +172,37 @@ void *fstd_alloc(fstd_allocator_t *allocator, uint32_t size) {
   }
 
   if (can_insert_new_header) {
+    size_t padding = 0;
+    size_t size_to_pad =
+        ((uintptr_t)best_header) + sizeof(fstd_alloc_header_t) + size;
+    if (size_to_pad % FSTD__ALLOC_ALIGNMENT != 0) {
+      padding = FSTD__ALLOC_ALIGNMENT - (size_to_pad % FSTD__ALLOC_ALIGNMENT);
+    }
+
     // @NOTE: insert new header after the allocation
-    uint32_t old_size = best_header->size;
+    size_t old_size = best_header->size;
     best_header->size = size + padding;
     fstd_alloc_header_t *new_header =
       (fstd_alloc_header_t *) ((uint8_t *)best_header +
                                      sizeof(fstd_alloc_header_t) +
                                      best_header->size);
-    alloc_header_init(
-        new_header,
-        old_size - best_header->size - sizeof(fstd_alloc_header_t),
-        best_header,
-        best_header->next);
+    header_init(
+        new_header, old_size - best_header->size - sizeof(fstd_alloc_header_t),
+        best_header, best_header->next);
     best_header->next = new_header;
   }
 
   best_header->used = true;
 
-  return best_header->addr;
+  return FSTD__HEADER_ADDR(best_header);
 }
 
 void fstd_free(fstd_allocator_t *allocator, void *ptr) {
   fstd_alloc_header_t *header =
       (fstd_alloc_header_t *)(((uint8_t *)ptr) - sizeof(fstd_alloc_header_t));
-  assert(header->addr == ptr);
+  assert(FSTD__HEADER_ADDR(header) == ptr);
   header->used = false;
-  alloc_header_merge_if_necessary(header);
+  header_merge_if_necessary(header);
 }
 
 #endif // FSTD_ALLOC_IMPLEMENTATION
